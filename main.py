@@ -12,7 +12,7 @@ from gi.repository import Gio, Gtk
 class Settings():
     def __init__(self):
         self.DesktopTextColor = "black"
-        self.VideoPath = '/home/nick/Downloads/NAKEDTEST.mp4'
+        self.VideoPath = ''
 
 userSettings = Settings()
 
@@ -326,6 +326,9 @@ def traverse_directory(directory):
             yield os.path.join(root, file)
 
 def main():
+
+    userSettings.VideoPath = sys.argv[1]
+    print(userSettings.VideoPath)
 
     # Check if the video file exists
     if not os.path.exists(userSettings.VideoPath):

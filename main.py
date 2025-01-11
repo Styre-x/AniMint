@@ -20,6 +20,26 @@ class Settings():
 # Global user settings
 userSettings = Settings()
 
+class SharedVideo(QtMultimedia.QAbstractVideoSurface):
+    frame_ready = QtCore.pyqtSignal(QtGui.QImage)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def supportedPixelFormats(self, handle_type):
+        return [
+            QtMultimedia.QVideoFrame.Format_RGB32,
+            QtMultimedia.QVideoFrame.Format_ARGB32,
+            QtMultimedia.QVideoFrame.Format_ARGB32_Premultiplied,
+            QtMultimedia.QVideoFrame.Format_RGB24,
+        ]
+
+    def present(self, frame):
+        image = frame.image()
+        if not image.isNull():
+            self.frame_ready.emit(image)
+        return True
+
 class VideoWallpaper(QtWidgets.QMainWindow):
     def __init__(self, video_path, screen):
         super().__init__()
@@ -43,12 +63,14 @@ class VideoWallpaper(QtWidgets.QMainWindow):
         self.video_widget.setGeometry(self.rect())
         self.setCentralWidget(self.video_widget)
 
-        # Initialize the media player
-        self.media_player = QtMultimedia.QMediaPlayer(self, QtMultimedia.QMediaPlayer.VideoSurface)
-        self.media_player.setVideoOutput(self.video_widget)
+        video_surface.frame_ready.connect(self.update_frame)
 
-        self.media_player.setMedia(QtMultimedia.QMediaContent(QtCore.QUrl.fromLocalFile(video_path)))
-        self.media_player.setVolume(0)
+        # Initialize the media player
+        #self.media_player = QtMultimedia.QMediaPlayer(self, QtMultimedia.QMediaPlayer.VideoSurface)
+        #self.media_player.setVideoOutput(self.video_widget)
+
+        #self.media_player.setMedia(QtMultimedia.QMediaContent(QtCore.QUrl.fromLocalFile(video_path)))
+        #self.media_player.setVolume(0)
 
         self.set_window_type_desktop() # This resizes and pushes the window to the back of everything
 
@@ -56,7 +78,7 @@ class VideoWallpaper(QtWidgets.QMainWindow):
         self.video_widget.mousePressEvent = self.on_click
 
         # Connect the media status change to handle looping
-        self.media_player.mediaStatusChanged.connect(self.handle_media_status)
+        #self.media_player.mediaStatusChanged.connect(self.handle_media_status)
 
     def handle_media_status(self, status):
         if status == QtMultimedia.QMediaPlayer.EndOfMedia:

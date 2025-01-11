@@ -66,7 +66,7 @@ class VideoWallpaper(QtWidgets.QMainWindow):
     def set_window_type_desktop(self):
         """
         Sets the window type to _NET_WM_WINDOW_TYPE_DESKTOP and window state to _NET_WM_STATE_BELOW.
-        This ensures the window behaves as a desktop background and stays below other windows.
+        Without this the desktop appears as an open app, gross!
         """
         try:
             window_id = int(self.winId())
@@ -111,8 +111,6 @@ class VideoWallpaper(QtWidgets.QMainWindow):
 
         if action == exit_action:
             QtWidgets.QApplication.quit()
-
-from PyQt5 import QtWidgets, QtCore, QtGui
 
 class ClickableIcon(QtWidgets.QWidget):
     def __init__(self, icon_path, position, filepath, parent=None):
@@ -164,11 +162,31 @@ class ClickableIcon(QtWidgets.QWidget):
         layout.addWidget(self.icon_label, alignment=QtCore.Qt.AlignCenter)
         layout.addWidget(self.text_label, alignment=QtCore.Qt.AlignCenter)
         self.setLayout(layout)
+        self.remove_open_apps()
         self.move(position)
         self.adjustSize()
 
         # store the file path for the icon in the object
         self.filepath = filepath
+
+    def remove_open_apps(self):
+        """
+        Sets the window type to NET_WM_WINDOW_TYPE_UTILITY and window state to _NET_WM_STATE_BELOW.
+        Without this the icons appear as an open app.
+        """
+        try:
+            window_id = int(self.winId())
+            d = display.Display()
+            w = d.create_resource_object('window', window_id)
+
+            NET_WM_WINDOW_TYPE = d.get_atom('_NET_WM_WINDOW_TYPE')
+            NET_WM_WINDOW_TYPE_UTILITY = d.get_atom('_NET_WM_WINDOW_TYPE_UTILITY')
+
+            w.change_property(NET_WM_WINDOW_TYPE, Xatom.ATOM, 32, [NET_WM_WINDOW_TYPE_UTILITY])
+
+            d.sync()
+        except Exception as e:
+            print(f"Error setting window type: {e}")
 
     def on_click(self, event):
         """

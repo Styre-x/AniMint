@@ -20,8 +20,28 @@ class Settings():
 # Global user settings
 userSettings = Settings()
 
+class SharedVideo(QtMultimedia.QAbstractVideoSurface):
+    frame_ready = QtCore.pyqtSignal(QtGui.QImage)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def supportedPixelFormats(self, handle_type):
+        return [
+            QtMultimedia.QVideoFrame.Format_RGB32,
+            QtMultimedia.QVideoFrame.Format_ARGB32,
+            QtMultimedia.QVideoFrame.Format_ARGB32_Premultiplied,
+            QtMultimedia.QVideoFrame.Format_RGB24,
+        ]
+
+    def present(self, frame):
+        image = frame.image()
+        if not image.isNull():
+            self.frame_ready.emit(image)
+        return True
+
 class VideoWallpaper(QtWidgets.QMainWindow):
-    def __init__(self, video_path, screen):
+    def __init__(self, video_surface, screen):
         super().__init__()
 
         self.screen = screen
@@ -39,24 +59,36 @@ class VideoWallpaper(QtWidgets.QMainWindow):
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
 
         # Create a video widget to display the video
-        self.video_widget = QtMultimediaWidgets.QVideoWidget(self)
+        self.video_widget = QtWidgets.QLabel(self)
         self.video_widget.setGeometry(self.rect())
-        self.setCentralWidget(self.video_widget)
+        self.video_widget.setScaledContents(True)
+        self.video_widget.setAttribute(QtCore.Qt.WA_TranslucentBackground)
+
+        # self.video_widget = QtMultimediaWidgets.QVideoWidget(self)
+        # self.video_widget.setGeometry(self.rect())
+        # self.setCentralWidget(self.video_widget)
+
+        video_surface.frame_ready.connect(self.update_frame)
 
         # Initialize the media player
-        self.media_player = QtMultimedia.QMediaPlayer(self, QtMultimedia.QMediaPlayer.VideoSurface)
-        self.media_player.setVideoOutput(self.video_widget)
+        #self.media_player = QtMultimedia.QMediaPlayer(self, QtMultimedia.QMediaPlayer.VideoSurface)
+        #self.media_player.setVideoOutput(self.video_widget)
 
-        self.media_player.setMedia(QtMultimedia.QMediaContent(QtCore.QUrl.fromLocalFile(video_path)))
-        self.media_player.setVolume(0)
+        #self.media_player.setMedia(QtMultimedia.QMediaContent(QtCore.QUrl.fromLocalFile(video_path)))
+        #self.media_player.setVolume(0)
 
         self.set_window_type_desktop() # This resizes and pushes the window to the back of everything
 
-        self.media_player.play()
+        #self.media_player.play()
         self.video_widget.mousePressEvent = self.on_click
 
         # Connect the media status change to handle looping
-        self.media_player.mediaStatusChanged.connect(self.handle_media_status)
+        #self.media_player.mediaStatusChanged.connect(self.handle_media_status)
+
+    #@QtCore.pyqtSlot(QtGui.QImage)
+    def update_frame(self, image):
+        pixmap = QtGui.QPixmap.fromImage(image)
+        self.video_widget.setPixmap(pixmap)
 
     def handle_media_status(self, status):
         if status == QtMultimedia.QMediaPlayer.EndOfMedia:
@@ -282,6 +314,7 @@ def traverse_directory(directory):
     for root, dirs, files in os.walk(directory):
         for file in files:
             yield os.path.join(root, file)
+    
 
 def main():
 
@@ -291,12 +324,7 @@ def main():
     if not os.path.exists(userSettings.VideoPath):
         print(f"Error: Video file not found at {userSettings.VideoPath}")
         sys.exit(1)
-
-    app = QtWidgets.QApplication(sys.argv)
-
-    # get all screens
-    screens = app.screens()
-
+    
     # Create wallpaper windows for each screen
 
     #TODO:
@@ -304,9 +332,22 @@ def main():
     # Some videos lag, others do not. Size doesn't seem to matter, it seems to be pretty random. 
     # Uncompressed videos work better from what I've seen.
 
+    app = QtWidgets.QApplication(sys.argv)
+    shared_surface = SharedVideo()
+
+    media_player = QtMultimedia.QMediaPlayer(None, QtMultimedia.QMediaPlayer.VideoSurface)
+    media_player.setVideoOutput(shared_surface)
+    media_player.setMedia(QtMultimedia.QMediaContent(QtCore.QUrl.fromLocalFile(userSettings.VideoPath)))
+    media_player.setVolume(0)
+    media_player.play()
+
+    media_player.mediaStatusChanged.connect(lambda status: media_player.setPosition(0) if status == QtMultimedia.QMediaPlayer.EndOfMedia else None)
+
+    # get all screens
+    screens = app.screens()
     wallpapers = []
-    for idx, screen in enumerate(screens):
-        wallpaper = VideoWallpaper(userSettings.VideoPath, screen)
+    for id, screen in enumerate(screens):
+        wallpaper = VideoWallpaper(shared_surface, screen)
         wallpaper.show()
         wallpapers.append(wallpaper)
 

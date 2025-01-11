@@ -1,3 +1,6 @@
+#TODO
+# break up into multiple scripts? This is getting weird to navigate
+
 import sys
 import os
 import configparser
@@ -12,8 +15,9 @@ from gi.repository import Gio, Gtk
 class Settings():
     def __init__(self):
         self.DesktopTextColor = "black"
-        self.VideoPath = ''
+        self.VideoPath = '' # This will be a setting later without the cli argument
 
+# Global user settings
 userSettings = Settings()
 
 class VideoWallpaper(QtWidgets.QMainWindow):
@@ -22,24 +26,15 @@ class VideoWallpaper(QtWidgets.QMainWindow):
 
         self.screen = screen
 
-        # Verify that the video file exists
-        if not os.path.exists(video_path):
-            raise FileNotFoundError(f"Video file not found: {video_path}")
-
-        # Remove window decorations and set window flags
         self.setWindowFlags(
             QtCore.Qt.FramelessWindowHint |            # Remove window borders
-            QtCore.Qt.WindowStaysOnBottomHint |        # Attempt to keep the window at the bottom
-            QtCore.Qt.Tool                             # Make it a tool window to influence stacking
+            QtCore.Qt.WindowStaysOnBottomHint          # Attempt to keep the window at the bottom
         )
 
-        # Get the available geometry (excluding panels and docks)
+        # Get the available geometry excluding panels and docks
         available_geo = self.screen.availableGeometry()
         self.setGeometry(available_geo)
-        print(f"Wallpaper window geometry set to: {available_geo}")
 
-        # Make the window transparent to mouse events
-        self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents)
         self.setAttribute(QtCore.Qt.WA_NoSystemBackground, True)
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
 
@@ -52,35 +47,21 @@ class VideoWallpaper(QtWidgets.QMainWindow):
         self.media_player = QtMultimedia.QMediaPlayer(self, QtMultimedia.QMediaPlayer.VideoSurface)
         self.media_player.setVideoOutput(self.video_widget)
 
-        # Set the media content to the provided video path
         self.media_player.setMedia(QtMultimedia.QMediaContent(QtCore.QUrl.fromLocalFile(video_path)))
-
-        # Optional: Mute the video if you don't want sound
         self.media_player.setVolume(0)
 
-        # Start playing the video
-
-        self.set_window_type_desktop()
+        self.set_window_type_desktop() # This resizes and pushes the window to the back of everything
 
         self.media_player.play()
-        self.media_player.setPosition(0)
-        print("Video playback started.")
+        self.video_widget.mousePressEvent = self.on_click
 
         # Connect the media status change to handle looping
         self.media_player.mediaStatusChanged.connect(self.handle_media_status)
-
-        # Scheduled setting of the window breaks stuff with resizing and adds black bars to the desktop
-        #QtCore.QTimer.singleShot(1000, self.set_window_type_desktop)
 
     def handle_media_status(self, status):
         if status == QtMultimedia.QMediaPlayer.EndOfMedia:
             self.media_player.setPosition(0)
             self.media_player.play()
-
-    def closeEvent(self, event):
-        # Ensure the media player is stopped when the window is closed
-        self.media_player.stop()
-        event.accept()
 
     def set_window_type_desktop(self):
         """
@@ -88,32 +69,20 @@ class VideoWallpaper(QtWidgets.QMainWindow):
         This ensures the window behaves as a desktop background and stays below other windows.
         """
         try:
-            # Get the window ID
             window_id = int(self.winId())
-
-            # Open the display
             d = display.Display()
-
-            # Get the window object
             w = d.create_resource_object('window', window_id)
 
-            # Define the atoms for window type and state
             NET_WM_WINDOW_TYPE = d.get_atom('_NET_WM_WINDOW_TYPE')
             NET_WM_WINDOW_TYPE_DESKTOP = d.get_atom('_NET_WM_WINDOW_TYPE_DESKTOP')
 
             NET_WM_STATE = d.get_atom('_NET_WM_STATE')
             NET_WM_STATE_BELOW = d.get_atom('_NET_WM_STATE_BELOW')
 
-            # Set the window type to DESKTOP
             w.change_property(NET_WM_WINDOW_TYPE, Xatom.ATOM, 32, [NET_WM_WINDOW_TYPE_DESKTOP])
-
-            # Add the BELOW state to ensure the window stays behind other windows
             w.change_property(NET_WM_STATE, Xatom.ATOM, 32, [NET_WM_STATE_BELOW])
 
-            # Flush the display to apply changes
             d.sync()
-
-            print(f"Successfully set window type to DESKTOP and state to BELOW for window ID {window_id}.")
         except Exception as e:
             print(f"Error setting window type: {e}")
 
@@ -124,21 +93,37 @@ class VideoWallpaper(QtWidgets.QMainWindow):
         if event.key() == QtCore.Qt.Key_Escape:
             QtWidgets.QApplication.quit()
 
+    def on_click(self, event):
+        """
+        Handle the click event on the video.
+        """
+        if event.button() == QtCore.Qt.RightButton:
+            self.show_context_menu(event.pos())
+
+    def show_context_menu(self, pos):
+        """
+        Display a context menu with options.
+        """
+        menu = QtWidgets.QMenu(self)
+        # create a menu to display when right clicked
+        exit_action = menu.addAction("Exit")
+        action = menu.exec_(self.mapToGlobal(pos))
+
+        if action == exit_action:
+            QtWidgets.QApplication.quit()
+
 from PyQt5 import QtWidgets, QtCore, QtGui
 
 class ClickableIcon(QtWidgets.QWidget):
     def __init__(self, icon_path, position, filepath, parent=None):
         super().__init__(parent)
-
-        # Set window flags to make the widget frameless and always on top
         self.setWindowFlags(
             QtCore.Qt.FramelessWindowHint |
-            QtCore.Qt.WindowStaysOnBottomHint |
-            QtCore.Qt.Tool
+            QtCore.Qt.WindowStaysOnBottomHint
         )
 
         layout = QtWidgets.QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)      # Remove margins
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4) 
 
         text = "icon"
@@ -147,20 +132,15 @@ class ClickableIcon(QtWidgets.QWidget):
         else:
             text = os.path.basename(filepath)
 
-        # Create a label to display the icon
         self.icon_label = QtWidgets.QLabel(self)
         pixmap = QtGui.QPixmap(icon_path)
         if pixmap.isNull():
             raise FileNotFoundError(f"Icon file not found or invalid: {icon_path}")
         self.icon_label.setPixmap(pixmap)
         self.icon_label.setScaledContents(True)
-        self.icon_label.setFixedSize(64, 64)        # Adjust icon size as needed
-        self.icon_label.setToolTip(text)            # Optional: Tooltip on hover
+        self.icon_label.setFixedSize(64, 64)
 
-        # Connect the click event to the handler
         self.icon_label.mousePressEvent = self.on_click
-
-        # Create a label to display the text
 
         textStyle = """
             QLabel {
@@ -174,57 +154,20 @@ class ClickableIcon(QtWidgets.QWidget):
         self.text_label = QtWidgets.QLabel(self)
         self.text_label.setText(text)
         self.text_label.setAlignment(QtCore.Qt.AlignCenter)
-        self.text_label.setStyleSheet(textStyle)  # Customize text appearance
-        self.text_label.setWordWrap(True)            # Allow text to wrap to multiple lines if needed
+        self.text_label.setStyleSheet(textStyle)
+        self.text_label.setWordWrap(True)
 
-        # Set a fixed height for the text label to ensure consistent spacing
-        self.text_label.setFixedHeight(24)           # Adjust height as needed
-
-        # Optionally, set a minimum width to allow text to extend beyond the icon's width
-        self.text_label.setMinimumWidth(128) 
-        # # Set attribute to have a transparent background
+        self.text_label.setFixedHeight(24)
+        self.text_label.setMinimumWidth(128)
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
-
-        # # Create a label to display the icon
-        # self.label = QtWidgets.QLabel(self)
-        # pixmap = QtGui.QPixmap(icon_path)
-        # if pixmap.isNull():
-        #     raise FileNotFoundError(f"Icon file not found or invalid: {icon_path}")
-        # self.label.setPixmap(pixmap)
-        # self.label.setScaledContents(True)
-        # self.label.setFixedSize(64, 64)  # Adjust icon size as needed
-        # self.icon_label.setToolTip(text) 
-
-        # self.text_label = QtWidgets.QLabel(self)
-        # self.text_label.setText(text)
-        # self.text_label.setAlignment(QtCore.Qt.AlignCenter)
-        # self.text_label.setStyleSheet("""
-        #     QLabel {
-        #         color: white; 
-        #         font-size: 12px;
-        #         background-color: rgba(0, 0, 0, 0);  /* Transparent background */
-        #     }
-        # """)  # Customize text appearance
-        # self.text_label.setWordWrap(True)            # Allow text to wrap to multiple lines if needed
-
-        # # Remove fixed width to allow text to extend beyond the icon's edges
-        # # Instead, set a maximum width or let it expand as needed
-        # self.text_label.setMaximumWidth(128)
 
         layout.addWidget(self.icon_label, alignment=QtCore.Qt.AlignCenter)
         layout.addWidget(self.text_label, alignment=QtCore.Qt.AlignCenter)
         self.setLayout(layout)
-
-        # Set the position of the icon
         self.move(position)
-
-        # Set the size of the widget to match the icon
-        #self.setFixedSize(self.label.size())
         self.adjustSize()
 
-        # Connect the click event
-        self.icon_label.mousePressEvent = self.on_click
-
+        # store the file path for the icon in the object
         self.filepath = filepath
 
     def on_click(self, event):
@@ -232,13 +175,10 @@ class ClickableIcon(QtWidgets.QWidget):
         Handle the click event on the icon.
         """
         if event.button() == QtCore.Qt.LeftButton:
-            print("Icon left-clicked!")
-            # Add your desired functionality here
-            # Example: Open a terminal
-            if self.filepath.endswith(".desktop"):
+            if self.filepath.endswith(".desktop"): # parse it and run it if it is a desktop file.
                 subprocess.run(parse_desktop_file(self.filepath, False).split(" "))
                 return
-            subprocess.run(['xdg-open', self.filepath], check=True)
+            subprocess.run(['xdg-open', self.filepath], check=True) # I think this opens everything correctly? 
         elif event.button() == QtCore.Qt.RightButton:
             self.show_context_menu(event.pos())
 
@@ -246,13 +186,8 @@ class ClickableIcon(QtWidgets.QWidget):
         """
         Display a context menu with options.
         """
-        menu = QtWidgets.QMenu(self)
-
-        exit_action = menu.addAction("Exit")
-        action = menu.exec_(self.mapToGlobal(pos))
-
-        if action == exit_action:
-            QtWidgets.QApplication.quit()
+        #TODO
+        # update options for files specifically
 
     def keyPressEvent(self, event):
         """
@@ -263,11 +198,14 @@ class ClickableIcon(QtWidgets.QWidget):
 
 def get_icon_path(filepath):
     """
-    Given a MIME type, return the path to the associated icon.
+    Given a file path string, return the path to the associated icon.
+    Parameters: File path
+    Returns: string file path to icon
     """
 
+    # this is so gross but .desktop icons (specifically steam) were weird and did not look good.
+    # This fixes that. 
     if os.path.basename(filepath).endswith(".desktop"):
-        print("changing to a desktop entry")
         iconname = parse_desktop_file(filepath, True) + ".png"
         homedir = os.path.expanduser("~")
         if os.path.exists("/usr/share/pixmaps/"+ iconname):
@@ -275,7 +213,7 @@ def get_icon_path(filepath):
         if os.path.exists(homedir + "/.local/share/icons/hicolor/64x64/apps/" + iconname):
             return homedir + "/.local/share/icons/hicolor/64x64/apps/" + iconname
         print("invalid icon! Please search for desktop icons and find a new location to search!")
-        return "/usr/share/pixmaps/timeshift.png"
+        # fallback: just return a gear for the icon
 
     try:
         fileinfo = Gio.file_new_for_path(filepath).query_info('standard::content-type', 0, None)
@@ -283,13 +221,9 @@ def get_icon_path(filepath):
     except Exception as e:
         print(f"Error getting MIME type for {filepath}: {e}")
         mimetype = None
-
-    if mimetype == None:
-        return "" # fallback error handling fopr icons, needs to be updated.
     
     icon_theme = Gtk.IconTheme.get_default()
     
-    # Get the icon name from the MIME type
     info = Gio.content_type_get_icon(mimetype)
     icon_names = info.get_names()
     
@@ -304,10 +238,14 @@ def get_icon_path(filepath):
     return fallback_icon.get_filename() if fallback_icon else None
 
 def parse_desktop_file(filepath, iconFlag):
+    """
+    Find the icon, name, or command from a .desktop file
+    Parameters: File path, iconFlag (True for icon, False for command, "Name" for name)
+    Returns: String, icon, command, or name
+    """
     config = configparser.ConfigParser(interpolation=None)
     config.read(filepath)
     
-    # Access the properties of the .desktop file
     name = config['Desktop Entry']['Name']
     exec_command = str(config['Desktop Entry']['Exec'])
     
@@ -320,6 +258,8 @@ def parse_desktop_file(filepath, iconFlag):
 def traverse_directory(directory):
     """
     Traverse the given directory and yield file paths.
+    Parameters: directory
+    Returns: None
     """
     for root, dirs, files in os.walk(directory):
         for file in files:
@@ -328,7 +268,6 @@ def traverse_directory(directory):
 def main():
 
     userSettings.VideoPath = sys.argv[1]
-    print(userSettings.VideoPath)
 
     # Check if the video file exists
     if not os.path.exists(userSettings.VideoPath):
@@ -337,14 +276,18 @@ def main():
 
     app = QtWidgets.QApplication(sys.argv)
 
-    # Retrieve all screens
+    # get all screens
     screens = app.screens()
-    print(f"Detected {len(screens)} screen(s).")
 
     # Create wallpaper windows for each screen
+
+    #TODO:
+    # This is very bad for performance. Try using one video player to play both videos.
+    # Some videos lag, others do not. Size doesn't seem to matter, it seems to be pretty random. 
+    # Uncompressed videos work better from what I've seen.
+
     wallpapers = []
     for idx, screen in enumerate(screens):
-        print(f"Creating wallpaper window for screen {idx + 1}: {screen.availableGeometry()}")
         wallpaper = VideoWallpaper(userSettings.VideoPath, screen)
         wallpaper.show()
         wallpapers.append(wallpaper)
@@ -352,25 +295,32 @@ def main():
     # desktop icons
     icons = []
 
+    # Only reason I am using gtk is to get desktop icons. Even then it doesn't work for .desktop files so it's almost useless
+
     Gtk.init()
 
-    # Loop through the desktop
-    marginx = 10
+    marginx = 0
     marginy = 0
-    for filepath in traverse_directory("/home/nick/Desktop/"):
-        geo = screens[0].availableGeometry() # currently the only screen that works with desktop icons is 0
-        icon_size = 64  # Must match the size set in ClickableIcon
-        position = QtCore.QPoint(
-            geo.x() + int(icon_size/2) + marginx,
-            geo.y() + int(icon_size/2) + marginy
-        )
-        marginy += 84
-        print(f"Creating clickable icon for screen {idx + 1} at position {position}.")
-        icon = ClickableIcon(get_icon_path(filepath), position, filepath)
-        icon.show()
-        icons.append(icon)
 
-    sys.exit(app.exec_())
+    desktopPath = os.path.expanduser("~") + "/Desktop/"
+
+    if not os.path.exists(desktopPath):
+        print("No desktop????")
+    else:
+        for filepath in traverse_directory(desktopPath):
+            geo = screens[0].availableGeometry() # currently the only screen that works with desktop icons is 0
+            icon_size = 76
+            position = QtCore.QPoint(
+                geo.x() + int(icon_size/2) + marginx,
+                geo.y() + int(icon_size/2) + marginy
+            )
+            marginy += 100
+            #print(ficon screen {idx + 1} position {position}.") # needed for debugging later
+            icon = ClickableIcon(get_icon_path(filepath), position, filepath)
+            icon.show()
+            icons.append(icon)
+
+    sys.exit(app.exec_()) # This allows for execution of other processes but exits the main thread
 
 if __name__ == '__main__':
     main()

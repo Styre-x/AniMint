@@ -12,16 +12,29 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gio, Gtk
 
-class Settings():
-    def __init__(self):
-        self.DesktopTextColor = "black"
-        self.VideoPath = '' # This will be a setting later without the cli argument
-
 # Global user settings
-userSettings = Settings()
+userSettings = configparser.ConfigParser()
+userSettings['Settings'] = {
+    'wallpaper': 'empty',
+    'fontcolor': 'black'
+}
+
+def saveSettings():
+    with open("settings", "w") as file:
+        userSettings.write(file)
+        file.close()
+
+if not os.path.exists("settings"):
+    saveSettings()
+
+userSettings = configparser.ConfigParser()
+userSettings.read("settings")
+
+print({section: dict(userSettings[section]) for section in userSettings.sections()})
+
 
 class VideoWallpaper(QtWidgets.QMainWindow):
-    def __init__(self, video_path, screen):
+    def __init__(self, screen, manager):
         super().__init__()
 
         self.screen = screen
@@ -47,16 +60,18 @@ class VideoWallpaper(QtWidgets.QMainWindow):
         self.media_player = QtMultimedia.QMediaPlayer(self, QtMultimedia.QMediaPlayer.VideoSurface)
         self.media_player.setVideoOutput(self.video_widget)
 
-        self.media_player.setMedia(QtMultimedia.QMediaContent(QtCore.QUrl.fromLocalFile(video_path)))
-        self.media_player.setVolume(0)
-
         self.set_window_type_desktop() # This resizes and pushes the window to the back of everything
-
-        self.media_player.play()
         self.video_widget.mousePressEvent = self.on_click
 
         # Connect the media status change to handle looping
         self.media_player.mediaStatusChanged.connect(self.handle_media_status)
+
+        self.WallpaperManager = manager
+
+    def loadVideo(self):
+        self.media_player.setMedia(QtMultimedia.QMediaContent(QtCore.QUrl.fromLocalFile(userSettings["Settings"]['wallpaper'])))
+        self.media_player.setVolume(0)
+        self.media_player.play()
 
     def handle_media_status(self, status):
         if status == QtMultimedia.QMediaPlayer.EndOfMedia:
@@ -86,13 +101,6 @@ class VideoWallpaper(QtWidgets.QMainWindow):
         except Exception as e:
             print(f"Error setting window type: {e}")
 
-    def keyPressEvent(self, event):
-        """
-        Override the key press event to allow exiting the application with the Esc key.
-        """
-        if event.key() == QtCore.Qt.Key_Escape:
-            QtWidgets.QApplication.quit()
-
     def on_click(self, event):
         """
         Handle the click event on the video.
@@ -106,11 +114,14 @@ class VideoWallpaper(QtWidgets.QMainWindow):
         """
         menu = QtWidgets.QMenu(self)
         # create a menu to display when right clicked
+        manager_action = menu.addAction("Wallpaper Manager")
         exit_action = menu.addAction("Exit")
         action = menu.exec_(self.mapToGlobal(pos))
 
         if action == exit_action:
             QtWidgets.QApplication.quit()
+        if action == manager_action:
+            self.WallpaperManager.show()
 
 class ClickableIcon(QtWidgets.QWidget):
     def __init__(self, icon_path, position, filepath, parent=None):
@@ -147,7 +158,7 @@ class ClickableIcon(QtWidgets.QWidget):
                 font-weight: 5;
                 background-color: rgba(0, 0, 0, 0);  /* Transparent background */
             }
-        """ % (userSettings.DesktopTextColor)
+        """ % (userSettings['Settings']["fontcolor"])
 
         self.text_label = QtWidgets.QLabel(self)
         self.text_label.setText(text)
@@ -200,19 +211,98 @@ class ClickableIcon(QtWidgets.QWidget):
         elif event.button() == QtCore.Qt.RightButton:
             self.show_context_menu(event.pos())
 
-    def show_context_menu(self, pos):
+    def show_context_menu(self):
         """
         Display a context menu with options.
         """
         #TODO
         # update options for files specifically
 
-    def keyPressEvent(self, event):
+class WallpaperManager(QtWidgets.QWidget):
+    def __init__(self, wallpapers, parent=None):
         """
-        Override the key press event to allow exiting the application with the Esc key.
+        Initializes the WallpaperManager widget.
+
+        Parameters:
+        - parent (QWidget, optional): Parent widget. Defaults to None.
         """
-        if event.key() == QtCore.Qt.Key_Escape:
-            QtWidgets.QApplication.quit()
+        super().__init__(parent)
+        
+        # Set up the UI
+        self.init_ui()
+        self.wallpapers = wallpapers
+    
+    def init_ui(self):
+        """
+        Sets up the user interface components.
+        """
+        self.setWindowTitle("Wallpaper Manager")
+        self.setFixedSize(400, 150)
+        self.setWindowFlags(QtCore.Qt.Dialog | QtCore.Qt.WindowTitleHint)
+        
+        # Create layout
+        layout = QtWidgets.QVBoxLayout()
+        
+        # Instruction label
+        instruction_label = QtWidgets.QLabel("Select a new wallpaper:")
+        layout.addWidget(instruction_label)
+        
+        # Horizontal layout for buttons
+        button_layout = QtWidgets.QHBoxLayout()
+        
+        # Change Wallpaper Button
+        self.change_button = QtWidgets.QPushButton("Change Wallpaper")
+        self.change_button.clicked.connect(self.choose_wallpaper)
+        button_layout.addWidget(self.change_button)
+        
+        # Cancel Button
+        self.cancel_button = QtWidgets.QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.hide)
+        button_layout.addWidget(self.cancel_button)
+        
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+    
+    def show(self):
+        """
+        Overrides the show method to display the dialog.
+        """
+        super().show()
+    
+    def hide(self):
+        """
+        Overrides the hide method to close the dialog.
+        """
+        super().hide()
+    
+    def choose_wallpaper(self):
+        """
+        Opens a file dialog to select a new wallpaper and sets it.
+        """
+        options = QtWidgets.QFileDialog.Options()
+        options |= QtWidgets.QFileDialog.ReadOnly
+        file_filter = "MP4 Videos (*.mp4)"
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select Wallpaper", "", file_filter, options=options)
+        
+        if file_path:
+            self.set_wallpaper(file_path)
+            self.hide()
+            for wallpaper in self.wallpapers:
+                wallpaper.loadVideo()
+    
+    def set_wallpaper(self, wallpaper_path):
+        """
+        Sets the selected i
+        Parameters:
+        - wallpaper_path (str): Absolute path to the wallpaper image.
+        """
+        if not os.path.isfile(wallpaper_path):
+            QtWidgets.QMessageBox.warning(self, "Error", "Selected file does not exist.")
+            return
+        
+        userSettings['Settings']['wallpaper'] = wallpaper_path
+        saveSettings()
 
 def get_icon_path(filepath):
     """
@@ -230,7 +320,7 @@ def get_icon_path(filepath):
             return "/usr/share/pixmaps/" + iconname
         if os.path.exists(homedir + "/.local/share/icons/hicolor/64x64/apps/" + iconname):
             return homedir + "/.local/share/icons/hicolor/64x64/apps/" + iconname
-        print("invalid icon! Please search for desktop icons and find a new location to search!")
+        print("invalid icon! Please search for desktop icons and find a new location to search! Line 323 or around there")
         # fallback: just return a gear for the icon
 
     try:
@@ -285,13 +375,6 @@ def traverse_directory(directory):
 
 def main():
 
-    userSettings.VideoPath = sys.argv[1]
-
-    # Check if the video file exists
-    if not os.path.exists(userSettings.VideoPath):
-        print(f"Error: Video file not found at {userSettings.VideoPath}")
-        sys.exit(1)
-
     app = QtWidgets.QApplication(sys.argv)
 
     # get all screens
@@ -305,10 +388,17 @@ def main():
     # Uncompressed videos work better from what I've seen.
 
     wallpapers = []
+    manager = WallpaperManager(wallpapers)
+
+    if userSettings['Settings']['wallpaper'] == "empty":
+        manager.show()
+
     for idx, screen in enumerate(screens):
-        wallpaper = VideoWallpaper(userSettings.VideoPath, screen)
+        wallpaper = VideoWallpaper(screen, manager)
         wallpaper.show()
         wallpapers.append(wallpaper)
+        if userSettings['Settings']['wallpaper'] != "empty":
+            wallpaper.loadVideo()
 
     # desktop icons
     icons = []

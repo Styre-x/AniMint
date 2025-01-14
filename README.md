@@ -4,8 +4,11 @@ Currently very bare-bones, more will be added soon.
 It is very simple to use:
 
 Install required libraries:
+```
 sudo apt-get install python3-gi
+
 pip install PyQt5 python-xlib
+```
 
 Run the main file with the path to the video you'd like to set as your desktop background:
 python3 main.py /path/to/video.mp4

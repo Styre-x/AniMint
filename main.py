@@ -30,8 +30,6 @@ if not os.path.exists("settings"):
 userSettings = configparser.ConfigParser()
 userSettings.read("settings")
 
-print({section: dict(userSettings[section]) for section in userSettings.sections()})
-
 
 class VideoWallpaper(QtWidgets.QMainWindow):
     def __init__(self, screen, manager):

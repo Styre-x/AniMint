@@ -4,10 +4,16 @@ Currently very bare-bones, more will be added soon.
 It is very simple to use:
 
 Install required libraries:
+(I recommend a python venv)
 ```
 sudo apt-get install python3-gi
 
 pip install PyQt5 python-xlib
+```
+
+clone the repo:
+```
+git clone https://github.com/Styre-x/AniMint.git
 ```
 
 Run the main file:

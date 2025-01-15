@@ -4,6 +4,7 @@
 import sys
 import os
 import configparser
+import time
 from PyQt5 import QtWidgets, QtCore, QtGui, QtMultimedia, QtMultimediaWidgets
 from Xlib import display
 from Xlib import Xatom
@@ -12,11 +13,15 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gio, Gtk
 
+# wallpapers and icons so I don't have to pass a reference to everything everywhere
+wallpapers = []
+icons = []
+
 # Global user settings
 userSettings = configparser.ConfigParser()
 userSettings['Settings'] = {
     'wallpaper': 'empty',
-    'fontcolor': 'black'
+    'textcolor': 'black'
 }
 
 def saveSettings():
@@ -139,13 +144,16 @@ class ClickableIcon(QtWidgets.QWidget):
         else:
             text = os.path.basename(filepath)
 
+        if len(text) >= 45:
+            text = text[:48] + "..."
+
         self.icon_label = QtWidgets.QLabel(self)
         pixmap = QtGui.QPixmap(icon_path)
         if pixmap.isNull():
             raise FileNotFoundError(f"Icon file not found or invalid: {icon_path}")
         self.icon_label.setPixmap(pixmap)
         self.icon_label.setScaledContents(True)
-        self.icon_label.setFixedSize(64, 64)
+        self.icon_label.setFixedSize(50, 50)
 
         self.icon_label.mousePressEvent = self.on_click
 
@@ -156,7 +164,7 @@ class ClickableIcon(QtWidgets.QWidget):
                 font-weight: 5;
                 background-color: rgba(0, 0, 0, 0);  /* Transparent background */
             }
-        """ % (userSettings['Settings']["fontcolor"])
+        """ % (userSettings['Settings']["textcolor"])
 
         self.text_label = QtWidgets.QLabel(self)
         self.text_label.setText(text)
@@ -180,7 +188,7 @@ class ClickableIcon(QtWidgets.QWidget):
 
     def remove_open_apps(self):
         """
-        Sets the window type to NET_WM_WINDOW_TYPE_UTILITY and window state to _NET_WM_STATE_BELOW.
+        Sets the window type to NET_WM_WINDOW_TYPE_DOCK and window state to _NET_WM_STATE_BELOW.
         Without this the icons appear as an open app.
         """
         try:
@@ -189,9 +197,9 @@ class ClickableIcon(QtWidgets.QWidget):
             w = d.create_resource_object('window', window_id)
 
             NET_WM_WINDOW_TYPE = d.get_atom('_NET_WM_WINDOW_TYPE')
-            NET_WM_WINDOW_TYPE_UTILITY = d.get_atom('_NET_WM_WINDOW_TYPE_UTILITY')
+            NET_WM_WINDOW_TYPE_DOCK = d.get_atom('_NET_WM_WINDOW_TYPE_DOCK')
 
-            w.change_property(NET_WM_WINDOW_TYPE, Xatom.ATOM, 32, [NET_WM_WINDOW_TYPE_UTILITY])
+            w.change_property(NET_WM_WINDOW_TYPE, Xatom.ATOM, 32, [NET_WM_WINDOW_TYPE_DOCK])
 
             d.sync()
         except Exception as e:
@@ -207,7 +215,7 @@ class ClickableIcon(QtWidgets.QWidget):
                 return
             subprocess.run(['xdg-open', self.filepath], check=True) # I think this opens everything correctly? 
         elif event.button() == QtCore.Qt.RightButton:
-            self.show_context_menu(event.pos())
+            self.show_context_menu()
 
     def show_context_menu(self):
         """
@@ -215,6 +223,18 @@ class ClickableIcon(QtWidgets.QWidget):
         """
         #TODO
         # update options for files specifically
+        print("something should happen here. May be a good idea to get working on that...")
+    
+    def update_text(self):
+        textStyle = """
+            QLabel {
+                color: %s; 
+                font-size: 10px;
+                font-weight: 5;
+                background-color: rgba(0, 0, 0, 0);  /* Transparent background */
+            }
+        """ % (userSettings['Settings']["textcolor"])
+        self.text_label.setStyleSheet(textStyle)
 
 class WallpaperManager(QtWidgets.QWidget):
     def __init__(self, wallpapers, parent=None):
@@ -241,6 +261,14 @@ class WallpaperManager(QtWidgets.QWidget):
         # Create layout
         layout = QtWidgets.QVBoxLayout()
         
+        layout.addWidget(QtWidgets.QLabel("Desktop Icon Text Color:"))
+
+        # Dropdown for text colors
+        self.color_dropdown = QtWidgets.QComboBox()
+        self.color_dropdown.addItems(["Black", "White", "Red", "Green", "Blue", "Yellow", "Cyan", "Magenta"])
+        self.color_dropdown.currentTextChanged.connect(self.color_selected)
+        layout.addWidget(self.color_dropdown)
+
         # Instruction label
         instruction_label = QtWidgets.QLabel("Select a new wallpaper:")
         layout.addWidget(instruction_label)
@@ -291,7 +319,7 @@ class WallpaperManager(QtWidgets.QWidget):
     
     def set_wallpaper(self, wallpaper_path):
         """
-        Sets the selected i
+        Sets the selected video
         Parameters:
         - wallpaper_path (str): Absolute path to the wallpaper image.
         """
@@ -301,6 +329,15 @@ class WallpaperManager(QtWidgets.QWidget):
         
         userSettings['Settings']['wallpaper'] = wallpaper_path
         saveSettings()
+
+    def color_selected(self, color):
+        """
+        Sets the selected text color
+        """
+        userSettings["Settings"]["textcolor"] = color
+        saveSettings()
+        for icon in icons:
+            icon.update_text()
 
 def get_icon_path(filepath):
     """
@@ -385,7 +422,7 @@ def main():
     # Some videos lag, others do not. Size doesn't seem to matter, it seems to be pretty random. 
     # Uncompressed videos work better from what I've seen.
 
-    wallpapers = []
+    
     manager = WallpaperManager(wallpapers)
 
     if userSettings['Settings']['wallpaper'] == "empty":
@@ -397,9 +434,6 @@ def main():
         wallpapers.append(wallpaper)
         if userSettings['Settings']['wallpaper'] != "empty":
             wallpaper.loadVideo()
-
-    # desktop icons
-    icons = []
 
     # Only reason I am using gtk is to get desktop icons. Even then it doesn't work for .desktop files so it's almost useless
 
@@ -413,15 +447,20 @@ def main():
     if not os.path.exists(desktopPath):
         print("No desktop????")
     else:
+        geo = screens[0].availableGeometry() # currently the only screen that works with desktop icons is 0
+        # print(geo.width(), geo.height())
+        maxy = geo.height() - 140
         for filepath in traverse_directory(desktopPath):
-            geo = screens[0].availableGeometry() # currently the only screen that works with desktop icons is 0
-            icon_size = 76
+            icon_size = 64
             position = QtCore.QPoint(
-                geo.x() + int(icon_size/2) + marginx,
-                geo.y() + int(icon_size/2) + marginy
+                int(icon_size/2) + marginx,
+                int(icon_size/2) + marginy
             )
-            marginy += 100
-            #print(ficon screen {idx + 1} position {position}.") # needed for debugging later
+            marginy += 86
+            
+            if marginy >= maxy:
+                marginy = 0
+                marginx += 135
             icon = ClickableIcon(get_icon_path(filepath), position, filepath)
             icon.show()
             icons.append(icon)

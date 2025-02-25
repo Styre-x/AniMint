@@ -24,16 +24,20 @@ userSettings['Settings'] = {
     'textcolor': 'black'
 }
 
+userSettings["desktop"] = {
+
+}
+
 def saveSettings():
-    with open("settings", "w") as file:
+    with open(os.path.expanduser("~") + "/AniMintSettings", "w") as file:
         userSettings.write(file)
         file.close()
 
-if not os.path.exists("settings"):
+if not os.path.exists(os.path.expanduser("~") + "/AniMintSettings"):
     saveSettings()
 
 userSettings = configparser.ConfigParser()
-userSettings.read("settings")
+userSettings.read(os.path.expanduser("~") + "/AniMintSettings")
 
 
 class VideoWallpaper(QtWidgets.QMainWindow):
@@ -108,6 +112,8 @@ class VideoWallpaper(QtWidgets.QMainWindow):
         """
         Handle the click event on the video.
         """
+        for icon in icons:
+            icon.removeHighlight()
         if event.button() == QtCore.Qt.RightButton:
             self.show_context_menu(event.pos())
 
@@ -127,12 +133,18 @@ class VideoWallpaper(QtWidgets.QMainWindow):
             self.WallpaperManager.show()
 
 class ClickableIcon(QtWidgets.QWidget):
-    def __init__(self, icon_path, position, filepath, parent=None):
+    def __init__(self, icon_path, position, filepath, index, maxy, parent=None):
         super().__init__(parent)
         self.setWindowFlags(
             QtCore.Qt.FramelessWindowHint |
             QtCore.Qt.WindowStaysOnBottomHint
         )
+
+        self.dragging = False  # Flag to check if dragging is in progress
+        self.drag_start_pos = None  # Store the initial mouse position
+        self.grid_sizex = 135  # Size of the grid for snapping
+        self.grid_sizey = 86
+        self.gridpadding = 15
 
         layout = QtWidgets.QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -145,7 +157,7 @@ class ClickableIcon(QtWidgets.QWidget):
             text = os.path.basename(filepath)
 
         if len(text) >= 45:
-            text = text[:48] + "..."
+            text = text[:45] + "..."
 
         self.icon_label = QtWidgets.QLabel(self)
         pixmap = QtGui.QPixmap(icon_path)
@@ -155,9 +167,12 @@ class ClickableIcon(QtWidgets.QWidget):
         self.icon_label.setScaledContents(True)
         self.icon_label.setFixedSize(50, 50)
 
-        self.icon_label.mousePressEvent = self.on_click
+        self.icon_label.mousePressEvent = self.mousePressEvent
+        self.icon_label.mouseMoveEvent = self.mouseMoveEvent
+        self.icon_label.mouseReleaseEvent = self.mouseReleaseEvent
 
-        textStyle = """
+
+        self.defaulttextStyle = """
             QLabel {
                 color: %s; 
                 font-size: 10px;
@@ -166,10 +181,21 @@ class ClickableIcon(QtWidgets.QWidget):
             }
         """ % (userSettings['Settings']["textcolor"])
 
+        self.clickedTextStyle = """
+            QLabel {
+                color: %s; 
+                font-size: 10px;
+                font-weight: 5;
+                background-color: rgba(155, 62, 192, 0.69);  /* Transparent background */
+            }
+        """ % (userSettings['Settings']["textcolor"])
+
+        self.highlighted = False
+
         self.text_label = QtWidgets.QLabel(self)
         self.text_label.setText(text)
         self.text_label.setAlignment(QtCore.Qt.AlignCenter)
-        self.text_label.setStyleSheet(textStyle)
+        self.text_label.setStyleSheet(self.defaulttextStyle)
         self.text_label.setWordWrap(True)
 
         self.text_label.setFixedHeight(24)
@@ -185,6 +211,70 @@ class ClickableIcon(QtWidgets.QWidget):
 
         # store the file path for the icon in the object
         self.filepath = filepath
+        self.IconIndex = index
+        self.maxy = maxy
+
+    def mouseDoubleClickEvent(self, event):
+        print('double click')
+        event.accept()
+
+    def highlight(self):
+        self.text_label.setStyleSheet(self.clickedTextStyle)
+
+    def removeHighlight(self):
+        self.text_label.setStyleSheet(self.defaulttextStyle)
+
+    def mousePressEvent(self, event):
+        # add a debounce or something similar to this to make it open on double click
+        # if event.button() == QtCore.Qt.LeftButton:
+        #     if self.filepath.endswith(".desktop"): # parse it and run it if it is a desktop file.
+        #         subprocess.run(parse_desktop_file(self.filepath, False).split(" "))
+        #         return
+        #     subprocess.run(['xdg-open', self.filepath], check=True) # I think this opens everything correctly? 
+        # el
+        if event.button() == QtCore.Qt.RightButton:
+            self.show_context_menu()
+
+        if event.button() == QtCore.Qt.LeftButton:
+            for icon in icons:
+                icon.removeHighlight()
+            self.highlight()
+
+            self.dragging = True
+            self.drag_start_pos = event.globalPos() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self.dragging and event.buttons() == QtCore.Qt.LeftButton:
+            self.move(event.globalPos() - self.drag_start_pos)
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton and self.dragging:
+            self.dragging = False
+            self.snap_to_grid()
+            event.accept()
+
+    def recursivePosition(self):
+        for icon in icons:
+            if icon.filepath != self.filepath and self.pos() == icon.pos():
+                newx = self.pos().x()
+                newy = self.pos().y() + self.grid_sizey
+                if newy >= self.maxy:
+                    newy = 0
+                    newx =+ self.grid_sizex
+                self.move(newx, newy)
+                self.recursivePosition()
+
+    def snap_to_grid(self):
+        current_pos = self.pos()
+        grid_x = round(current_pos.x() / self.grid_sizex) * self.grid_sizex + self.gridpadding
+        grid_y = round(current_pos.y() / self.grid_sizey) * self.grid_sizey + self.gridpadding
+        self.move(grid_x, grid_y)
+        self.recursivePosition()
+        userSettings.set("desktop", "icon" + str(self.IconIndex) + "x", str(self.pos().x()))
+        userSettings.set("desktop", "icon" + str(self.IconIndex) + "y", str(self.pos().y()))
+        saveSettings()
 
     def remove_open_apps(self):
         """
@@ -204,18 +294,6 @@ class ClickableIcon(QtWidgets.QWidget):
             d.sync()
         except Exception as e:
             print(f"Error setting window type: {e}")
-
-    def on_click(self, event):
-        """
-        Handle the click event on the icon.
-        """
-        if event.button() == QtCore.Qt.LeftButton:
-            if self.filepath.endswith(".desktop"): # parse it and run it if it is a desktop file.
-                subprocess.run(parse_desktop_file(self.filepath, False).split(" "))
-                return
-            subprocess.run(['xdg-open', self.filepath], check=True) # I think this opens everything correctly? 
-        elif event.button() == QtCore.Qt.RightButton:
-            self.show_context_menu()
 
     def show_context_menu(self):
         """
@@ -406,7 +484,7 @@ def traverse_directory(directory):
     """
     for root, dirs, files in os.walk(directory):
         for file in files:
-            yield os.path.join(root, file)
+            yield os.path.join(root, file), file
 
 def main():
 
@@ -448,21 +526,24 @@ def main():
         print("No desktop????")
     else:
         geo = screens[0].availableGeometry() # currently the only screen that works with desktop icons is 0
-        # print(geo.width(), geo.height())
         maxy = geo.height() - 140
-        for filepath in traverse_directory(desktopPath):
-            icon_size = 64
-            position = QtCore.QPoint(
-                int(icon_size/2) + marginx,
-                int(icon_size/2) + marginy
-            )
-            marginy += 86
-            
-            if marginy >= maxy:
-                marginy = 0
-                marginx += 135
-            icon = ClickableIcon(get_icon_path(filepath), position, filepath)
+        for filepath, file in traverse_directory(desktopPath):
+            iconIndex = str(file)
+            if not userSettings.has_option("desktop", "icon" + iconIndex + "x"):
+                print('adding positions')
+                icon_size = 64
+                position = QtCore.QPoint(
+                    int(icon_size/2) + marginx,
+                    int(icon_size/2) + marginy
+                )
+            else:
+                position = QtCore.QPoint(
+                    int(userSettings["desktop"]["icon" + iconIndex + "x"]),
+                    int(userSettings["desktop"]["icon" + iconIndex + "y"])
+                )
+            icon = ClickableIcon(get_icon_path(filepath), position, filepath, iconIndex, maxy)
             icon.show()
+            icon.snap_to_grid()
             icons.append(icon)
 
     sys.exit(app.exec_()) # This allows for execution of other processes but exits the main thread
